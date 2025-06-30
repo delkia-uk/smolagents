@@ -594,7 +594,7 @@ def evaluate_function_def(
     shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Callable:
-    custom_tools[func_def.name] = create_function(
+    func = create_function(
         func_def,
         state,
         static_tools,
@@ -603,6 +603,18 @@ def evaluate_function_def(
         shims,
         authorized_imports,
     )
+    for decorator in func_def.decorator_list:
+        dec = evaluate_ast(
+            decorator,
+            state,
+            static_tools,
+            custom_tools,
+            forbidden_tools,
+            shims,
+            authorized_imports,
+        )
+        func = dec(func)
+    custom_tools[func_def.name] = func
     return custom_tools[func_def.name]
 
 
