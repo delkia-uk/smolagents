@@ -750,6 +750,17 @@ def evaluate_class_def(
             )
 
     new_class = type(class_name, tuple(bases), class_dict)
+    for decorator in class_def.decorator_list:
+        dec = evaluate_ast(
+            decorator,
+            state,
+            static_tools,
+            custom_tools,
+            forbidden_tools,
+            shims,
+            authorized_imports,
+        )
+        new_class = dec(new_class)
     state[class_name] = new_class
     return new_class
 
