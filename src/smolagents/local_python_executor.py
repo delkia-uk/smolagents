@@ -150,9 +150,9 @@ DANGEROUS_FUNCTIONS = [
 
 def check_safer_result(
     result: Any,
-    static_tools: dict[str, Callable] = None,
-    authorized_imports: list[str] = None,
-    forbidden_tools: set[Any] = None,
+    static_tools: dict[str, Callable] | None = None,
+    authorized_imports: list[str] | None = None,
+    forbidden_tools: set[Any] | None = None,
 ):
     """
     Checks if a result is safer according to authorized imports and static tools.
@@ -167,6 +167,10 @@ def check_safer_result(
     """
     assert forbidden_tools is not None
     assert isinstance(forbidden_tools, set)
+    if authorized_imports is None:
+        authorized_imports = []
+    if static_tools is None:
+        static_tools = BASE_PYTHON_TOOLS
     if forbidden_tools is None:
         forbidden_tools = set()
 
@@ -214,6 +218,7 @@ def safer_eval(func: Callable):
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports=BASE_BUILTIN_MODULES,
     ):
         result = func(
@@ -222,6 +227,7 @@ def safer_eval(func: Callable):
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports=authorized_imports,
         )
         check_safer_result(result, static_tools, authorized_imports, forbidden_tools)
@@ -372,6 +378,7 @@ def evaluate_attribute(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     if expression.attr.startswith("__") and expression.attr.endswith("__"):
@@ -384,6 +391,7 @@ def evaluate_attribute(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     return getattr(value, expression.attr)
@@ -395,6 +403,7 @@ def evaluate_unaryop(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     operand = evaluate_ast(
@@ -403,6 +412,7 @@ def evaluate_unaryop(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     if isinstance(expression.op, ast.USub):
@@ -425,6 +435,7 @@ def evaluate_lambda(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Callable:
     args = [arg.arg for arg in lambda_expression.args.args]
@@ -439,6 +450,7 @@ def evaluate_lambda(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
 
@@ -451,6 +463,7 @@ def evaluate_while(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     iterations = 0
@@ -460,6 +473,7 @@ def evaluate_while(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     ):
         for node in while_loop.body:
@@ -470,6 +484,7 @@ def evaluate_while(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
             except BreakException:
@@ -490,6 +505,7 @@ def create_function(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Callable:
     source_code = ast.unparse(func_def)
@@ -504,6 +520,7 @@ def create_function(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             for d in func_def.args.defaults
@@ -549,6 +566,7 @@ def create_function(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
         except ReturnException as e:
@@ -573,6 +591,7 @@ def evaluate_function_def(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Callable:
     custom_tools[func_def.name] = create_function(
@@ -581,6 +600,7 @@ def evaluate_function_def(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     return custom_tools[func_def.name]
@@ -592,6 +612,7 @@ def evaluate_class_def(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> type:
     class_name = class_def.name
@@ -602,6 +623,7 @@ def evaluate_class_def(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         for base in class_def.bases
@@ -616,6 +638,7 @@ def evaluate_class_def(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
         elif isinstance(stmt, ast.AnnAssign):
@@ -626,6 +649,7 @@ def evaluate_class_def(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
             target = stmt.target
@@ -638,6 +662,7 @@ def evaluate_class_def(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 class_dict.setdefault("__annotations__", {})[target.id] = annotation
@@ -652,6 +677,7 @@ def evaluate_class_def(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 # If there's a value assignment, set the attribute
@@ -665,6 +691,7 @@ def evaluate_class_def(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 index = evaluate_ast(
@@ -691,6 +718,7 @@ def evaluate_class_def(
                         static_tools,
                         custom_tools,
                         forbidden_tools,
+                        shims,
                         authorized_imports,
                     )
                     setattr(obj, target.attr, value)
@@ -720,6 +748,7 @@ def evaluate_annassign(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     # If there's a value to assign, evaluate it
@@ -735,6 +764,7 @@ def evaluate_annassign(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         return value
@@ -748,6 +778,7 @@ def evaluate_augassign(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     def get_current_value(target: ast.AST) -> Any:
@@ -824,6 +855,7 @@ def evaluate_augassign(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
 
@@ -836,6 +868,7 @@ def evaluate_boolop(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     # Determine which value should trigger short-circuit based on operation type:
@@ -861,6 +894,7 @@ def evaluate_binop(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     # Recursively evaluate the left and right operands
@@ -870,6 +904,7 @@ def evaluate_binop(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     right_val = evaluate_ast(
@@ -878,6 +913,7 @@ def evaluate_binop(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
 
@@ -918,6 +954,7 @@ def evaluate_assign(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     result = evaluate_ast(
@@ -926,6 +963,7 @@ def evaluate_assign(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     if len(assign.targets) == 1:
@@ -937,6 +975,7 @@ def evaluate_assign(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
     else:
@@ -955,6 +994,7 @@ def evaluate_assign(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
     return result
@@ -967,6 +1007,7 @@ def set_value(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     if isinstance(target, ast.Name):
@@ -991,6 +1032,7 @@ def set_value(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
     elif isinstance(target, ast.Subscript):
@@ -1000,6 +1042,7 @@ def set_value(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         key = evaluate_ast(
@@ -1008,6 +1051,7 @@ def set_value(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         obj[key] = value
@@ -1018,6 +1062,7 @@ def set_value(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         setattr(obj, target.attr, value)
@@ -1029,6 +1074,7 @@ def evaluate_call(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     if not isinstance(
@@ -1045,6 +1091,7 @@ def evaluate_call(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
     elif isinstance(call.func, ast.Lambda):
@@ -1054,6 +1101,7 @@ def evaluate_call(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
     elif isinstance(call.func, ast.Attribute):
@@ -1063,6 +1111,7 @@ def evaluate_call(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         func_name = call.func.attr
@@ -1090,6 +1139,7 @@ def evaluate_call(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         if not callable(func):
@@ -1106,6 +1156,7 @@ def evaluate_call(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
             )
@@ -1117,6 +1168,7 @@ def evaluate_call(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
             )
@@ -1128,6 +1180,7 @@ def evaluate_call(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         for keyword in call.keywords
@@ -1136,6 +1189,12 @@ def evaluate_call(
 
     if func in forbidden_tools:
         raise InterpreterError(f"Attempted to access forbidden tool: {func.__name__}")
+    if func in shims:
+        func = shims[func]
+    elif hasattr(func, "__func__") and func.__func__ in shims:
+        f = shims[func.__func__]
+        this = func.__self__
+        func = lambda *args, __f=f, __self=this, **kwargs: __f(__self, *args, **kwargs)
 
     if func_name == "super":
         if not args:
@@ -1156,7 +1215,7 @@ def evaluate_call(
     elif func_name == "print":
         state["_print_outputs"] += " ".join(map(str, args)) + "\n"
         return None
-    else:  # Assume it's a callable object
+    else:  # Assume it's a Callable object
         if (
             (inspect.getmodule(func) == builtins)
             and inspect.isbuiltin(func)
@@ -1176,6 +1235,7 @@ def evaluate_subscript(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     index = evaluate_ast(
@@ -1184,6 +1244,7 @@ def evaluate_subscript(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     value = evaluate_ast(
@@ -1192,6 +1253,7 @@ def evaluate_subscript(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     try:
@@ -1213,6 +1275,7 @@ def evaluate_name(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     if name.id in state:
@@ -1239,6 +1302,7 @@ def evaluate_condition(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> bool | object:
     result = True
@@ -1248,6 +1312,7 @@ def evaluate_condition(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     for i, (op, comparator) in enumerate(zip(condition.ops, condition.comparators)):
@@ -1258,6 +1323,7 @@ def evaluate_condition(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         if op == ast.Eq:
@@ -1296,6 +1362,7 @@ def evaluate_if(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     result = None
@@ -1305,6 +1372,7 @@ def evaluate_if(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     if test_result:
@@ -1315,6 +1383,7 @@ def evaluate_if(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             if line_result is not None:
@@ -1327,6 +1396,7 @@ def evaluate_if(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             if line_result is not None:
@@ -1340,6 +1410,7 @@ def evaluate_for(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
     result = None
@@ -1349,6 +1420,7 @@ def evaluate_for(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     for counter in iterator:
@@ -1359,6 +1431,7 @@ def evaluate_for(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         for node in for_loop.body:
@@ -1369,6 +1442,7 @@ def evaluate_for(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 if line_result is not None:
@@ -1389,6 +1463,7 @@ def evaluate_listcomp(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> list[Any]:
     def inner_evaluate(
@@ -1402,6 +1477,7 @@ def evaluate_listcomp(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
             ]
@@ -1412,6 +1488,7 @@ def evaluate_listcomp(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         result = []
@@ -1429,6 +1506,7 @@ def evaluate_listcomp(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 for if_clause in generator.ifs
@@ -1445,6 +1523,7 @@ def evaluate_setcomp(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> set[Any]:
     result = set()
@@ -1455,6 +1534,7 @@ def evaluate_setcomp(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         for value in iter_value:
@@ -1466,6 +1546,7 @@ def evaluate_setcomp(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             if all(
@@ -1475,6 +1556,7 @@ def evaluate_setcomp(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 for if_clause in gen.ifs
@@ -1484,6 +1566,8 @@ def evaluate_setcomp(
                     new_state,
                     static_tools,
                     custom_tools,
+                    forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 result.add(element)
@@ -1496,6 +1580,7 @@ def evaluate_try(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     try:
@@ -1506,6 +1591,7 @@ def evaluate_try(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
     except Exception as e:
@@ -1519,6 +1605,7 @@ def evaluate_try(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 ),
             ):
@@ -1532,6 +1619,7 @@ def evaluate_try(
                         static_tools,
                         custom_tools,
                         forbidden_tools,
+                        shims,
                         authorized_imports,
                     )
                 break
@@ -1546,6 +1634,7 @@ def evaluate_try(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
     finally:
@@ -1557,6 +1646,7 @@ def evaluate_try(
                     static_tools,
                     custom_tools,
                     forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
 
@@ -1567,6 +1657,7 @@ def evaluate_raise(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     if raise_node.exc is not None:
@@ -1576,6 +1667,7 @@ def evaluate_raise(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
     else:
@@ -1587,6 +1679,7 @@ def evaluate_raise(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
     else:
@@ -1606,6 +1699,7 @@ def evaluate_assert(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     test_result = evaluate_ast(
@@ -1614,6 +1708,7 @@ def evaluate_assert(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     if not test_result:
@@ -1624,6 +1719,7 @@ def evaluate_assert(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             raise AssertionError(msg)
@@ -1639,6 +1735,7 @@ def evaluate_with(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     contexts = []
@@ -1649,6 +1746,7 @@ def evaluate_with(
             static_tools,
             custom_tools,
             forbidden_tools,
+            shims,
             authorized_imports,
         )
         if item.optional_vars:
@@ -1666,6 +1764,7 @@ def evaluate_with(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
     except Exception as e:
@@ -1768,6 +1867,7 @@ def evaluate_dictcomp(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> dict[Any, Any]:
     result = {}
@@ -1784,11 +1884,18 @@ def evaluate_dictcomp(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             if all(
                 evaluate_ast(
-                    if_clause, new_state, static_tools, custom_tools, authorized_imports
+                    if_clause,
+                    new_state,
+                    static_tools,
+                    custom_tools,
+                    forbidden_tools,
+                    shims,
+                    authorized_imports,
                 )
                 for if_clause in gen.ifs
             ):
@@ -1797,6 +1904,8 @@ def evaluate_dictcomp(
                     new_state,
                     static_tools,
                     custom_tools,
+                    forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 val = evaluate_ast(
@@ -1804,6 +1913,8 @@ def evaluate_dictcomp(
                     new_state,
                     static_tools,
                     custom_tools,
+                    forbidden_tools,
+                    shims,
                     authorized_imports,
                 )
                 result[key] = val
@@ -1816,6 +1927,7 @@ def evaluate_delete(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> None:
     """
@@ -1845,6 +1957,7 @@ def evaluate_delete(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             index = evaluate_ast(
@@ -1853,6 +1966,7 @@ def evaluate_delete(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
             try:
@@ -1872,6 +1986,7 @@ def evaluate_ast(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     forbidden_tools: set[Any],
+    shims: dict[Callable, Callable],
     authorized_imports: list[str],  # = BASE_BUILTIN_MODULES,
 ):
     """
@@ -1907,6 +2022,7 @@ def evaluate_ast(
         static_tools,
         custom_tools,
         forbidden_tools,
+        shims,
         authorized_imports,
     )
     if isinstance(expression, ast.Assign):
@@ -2055,6 +2171,7 @@ def evaluate_python_code(
     static_tools: dict[str, Callable] | None = None,
     custom_tools: dict[str, Callable] | None = None,
     forbidden_tools: set[Any] | None = None,
+    shims: dict[Callable, Callable] | None = None,
     state: dict[str, Any] | None = None,
     authorized_imports: list[str] = BASE_BUILTIN_MODULES,
     max_print_outputs_length: int = DEFAULT_MAX_LEN_OUTPUT,
@@ -2094,6 +2211,7 @@ def evaluate_python_code(
     static_tools = static_tools.copy() if static_tools is not None else {}
     custom_tools = custom_tools if custom_tools is not None else {}
     forbidden_tools = forbidden_tools if forbidden_tools is not None else set()
+    shims = shims if shims is not None else {}
     result = None
     state["_print_outputs"] = PrintContainer()
     state["_operations_count"] = {"counter": 0}
@@ -2114,6 +2232,7 @@ def evaluate_python_code(
                 static_tools,
                 custom_tools,
                 forbidden_tools,
+                shims,
                 authorized_imports,
             )
         state["_print_outputs"].value = truncate_content(
