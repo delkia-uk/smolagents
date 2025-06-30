@@ -812,6 +812,8 @@ def evaluate_call(
         for keyword in call.keywords
     }
 
+    print(func)
+
     if func_name == "super":
         if not args:
             if "__class__" in state and "self" in state:
