@@ -707,7 +707,13 @@ def evaluate_class_def(
                     authorized_imports,
                 )
                 index = evaluate_ast(
-                    target.slice, state, static_tools, custom_tools, authorized_imports
+                    target.slice,
+                    state,
+                    static_tools,
+                    custom_tools,
+                    forbidden_tools,
+                    shims,
+                    authorized_imports,
                 )
                 # If there's a value assignment, set the item
                 if stmt.value:
@@ -718,7 +724,13 @@ def evaluate_class_def(
                 )
         elif isinstance(stmt, ast.Assign):
             value = evaluate_ast(
-                stmt.value, state, static_tools, custom_tools, authorized_imports
+                stmt.value,
+                state,
+                static_tools,
+                custom_tools,
+                forbidden_tools,
+                shims,
+                authorized_imports,
             )
             for target in stmt.targets:
                 if isinstance(target, ast.Name):
@@ -777,7 +789,13 @@ def evaluate_annassign(
     # If there's a value to assign, evaluate it
     if annassign.value:
         value = evaluate_ast(
-            annassign.value, state, static_tools, custom_tools, authorized_imports
+            annassign.value,
+            state,
+            static_tools,
+            custom_tools,
+            forbidden_tools,
+            shims,
+            authorized_imports,
         )
         # Set the value for the target
         set_value(
@@ -809,15 +827,33 @@ def evaluate_augassign(
             return state.get(target.id, 0)
         elif isinstance(target, ast.Subscript):
             obj = evaluate_ast(
-                target.value, state, static_tools, custom_tools, authorized_imports
+                target.value,
+                state,
+                static_tools,
+                custom_tools,
+                forbidden_tools,
+                shims,
+                authorized_imports,
             )
             key = evaluate_ast(
-                target.slice, state, static_tools, custom_tools, authorized_imports
+                target.slice,
+                state,
+                static_tools,
+                custom_tools,
+                forbidden_tools,
+                shims,
+                authorized_imports,
             )
             return obj[key]
         elif isinstance(target, ast.Attribute):
             obj = evaluate_ast(
-                target.value, state, static_tools, custom_tools, authorized_imports
+                target.value,
+                state,
+                static_tools,
+                custom_tools,
+                forbidden_tools,
+                shims,
+                authorized_imports,
             )
             return getattr(obj, target.attr)
         elif isinstance(target, ast.Tuple):
@@ -831,7 +867,13 @@ def evaluate_augassign(
 
     current_value = get_current_value(expression.target)
     value_to_add = evaluate_ast(
-        expression.value, state, static_tools, custom_tools, authorized_imports
+        expression.value,
+        state,
+        static_tools,
+        custom_tools,
+        forbidden_tools,
+        shims,
+        authorized_imports,
     )
 
     if isinstance(expression.op, ast.Add):
@@ -902,7 +944,13 @@ def evaluate_boolop(
     )
     for value in node.values:
         result = evaluate_ast(
-            value, state, static_tools, custom_tools, authorized_imports
+            value,
+            state,
+            static_tools,
+            custom_tools,
+            forbidden_tools,
+            shims,
+            authorized_imports,
         )
         # Short-circuit: return immediately if the condition is met
         if is_short_circuit_value(result):
