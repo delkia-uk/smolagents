@@ -55,6 +55,11 @@ DEFAULT_MAX_LEN_OUTPUT = 50000
 MAX_OPERATIONS = 10000000
 MAX_WHILE_ITERATIONS = 1000000
 
+INTERPRETER_INTERNS = {
+    "_print_outputs",
+    "_operations_count",
+}
+
 
 def custom_print(*args):
     return None
@@ -1351,6 +1356,8 @@ def evaluate_name(
     shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> Any:
+    if name.id in INTERPRETER_INTERNALS:
+        raise InterpreterError(f"Attempted to access internal variable: {name.id}. This is not allowed.")
     if name.id in state:
         return state[name.id]
     elif name.id in static_tools:
@@ -1946,7 +1953,7 @@ def evaluate_dictcomp(
     result = {}
     for gen in dictcomp.generators:
         iter_value = evaluate_ast(
-            gen.iter, state, static_tools, custom_tools, authorized_imports
+            gen.iter, state, static_tools, custom_tools, forbidden_tools, shims, authorized_imports,
         )
         for value in iter_value:
             new_state = state.copy()
