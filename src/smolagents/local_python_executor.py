@@ -60,6 +60,8 @@ INTERPRETER_INTERNALS = {
     "_operations_count",
 }
 
+UNDEFINED = object()
+
 
 def custom_print(*args):
     return None
@@ -632,124 +634,59 @@ def evaluate_class_def(
     shims: dict[Callable, Callable],
     authorized_imports: list[str],
 ) -> type:
+    common_params = (
+        static_tools,
+        custom_tools,
+        forbidden_tools,
+        shims,
+        authorized_imports,
+    )
+
     class_name = class_def.name
-    bases = [
-        evaluate_ast(
-            base,
-            state,
-            static_tools,
-            custom_tools,
-            forbidden_tools,
-            shims,
-            authorized_imports,
-        )
-        for base in class_def.bases
-    ]
+    bases = [evaluate_ast(base, *common_params) for base in class_def.bases]
     class_dict = {}
 
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
-            class_dict[stmt.name] = evaluate_ast(
-                stmt,
-                state,
-                static_tools,
-                custom_tools,
-                forbidden_tools,
-                shims,
-                authorized_imports,
-            )
+            class_dict[stmt.name] = evaluate_ast(stmt, state, *common_params)
         elif isinstance(stmt, ast.AnnAssign):
             if stmt.value:
-                value = evaluate_ast(
-                    stmt.value,
-                    state,
-                    static_tools,
-                    custom_tools,
-                    forbidden_tools,
-                    shims,
-                    authorized_imports,
-                )
+                value = evaluate_ast(stmt.value, state, *common_params)
+            else:
+                value = UNDEFINED
             target = stmt.target
             # Handle target types for annotation
             if isinstance(target, ast.Name):
                 # Simple variable annotation like "x: int"
-                annotation = evaluate_ast(
-                    stmt.annotation,
-                    state,
-                    static_tools,
-                    custom_tools,
-                    forbidden_tools,
-                    shims,
-                    authorized_imports,
-                )
+                annotation = evaluate_ast(stmt.annotation, state, *common_params)
                 class_dict.setdefault("__annotations__", {})[target.id] = annotation
                 # Assign value if provided
-                if stmt.value:
+                if value is not UNDEFINED:
                     class_dict[target.id] = value
             elif isinstance(target, ast.Attribute):
                 # Attribute annotation like "obj.attr: int"
-                obj = evaluate_ast(
-                    target.value,
-                    class_dict,
-                    static_tools,
-                    custom_tools,
-                    forbidden_tools,
-                    shims,
-                    authorized_imports,
-                )
+                obj = evaluate_ast(target.value, class_dict, *common_params)
                 # If there's a value assignment, set the attribute
-                if stmt.value:
+                if value is not UNDEFINED:
                     setattr(obj, target.attr, value)
             elif isinstance(target, ast.Subscript):
                 # Subscript annotation like "dict[key]: int"
-                container = evaluate_ast(
-                    target.value,
-                    class_dict,
-                    static_tools,
-                    custom_tools,
-                    forbidden_tools,
-                    shims,
-                    authorized_imports,
-                )
-                index = evaluate_ast(
-                    target.slice,
-                    state,
-                    static_tools,
-                    custom_tools,
-                    forbidden_tools,
-                    shims,
-                    authorized_imports,
-                )
+                container = evaluate_ast(target.value, class_dict, *common_params)
+                index = evaluate_ast(target.slice, state, *common_params)
                 # If there's a value assignment, set the item
-                if stmt.value:
+                if value is not UNDEFINED:
                     container[index] = value
             else:
                 raise InterpreterError(
                     f"Unsupported AnnAssign target in class body: {type(target).__name__}"
                 )
         elif isinstance(stmt, ast.Assign):
-            value = evaluate_ast(
-                stmt.value,
-                state,
-                static_tools,
-                custom_tools,
-                forbidden_tools,
-                shims,
-                authorized_imports,
-            )
+            value = evaluate_ast(stmt.value, state, *common_params)
             for target in stmt.targets:
                 if isinstance(target, ast.Name):
                     class_dict[target.id] = value
                 elif isinstance(target, ast.Attribute):
-                    obj = evaluate_ast(
-                        target.value,
-                        class_dict,
-                        static_tools,
-                        custom_tools,
-                        forbidden_tools,
-                        shims,
-                        authorized_imports,
-                    )
+                    obj = evaluate_ast(target.value, class_dict, *common_params)
                     setattr(obj, target.attr, value)
         elif isinstance(stmt, ast.Pass):
             pass
@@ -768,15 +705,7 @@ def evaluate_class_def(
 
     new_class = type(class_name, tuple(bases), class_dict)
     for decorator in class_def.decorator_list:
-        dec = evaluate_ast(
-            decorator,
-            state,
-            static_tools,
-            custom_tools,
-            forbidden_tools,
-            shims,
-            authorized_imports,
-        )
+        dec = evaluate_ast(decorator, state, *common_params)
         new_class = dec(new_class)
     state[class_name] = new_class
     return new_class
@@ -944,9 +873,15 @@ def evaluate_boolop(
     # Determine which value should trigger short-circuit based on operation type:
     # - 'and' returns the first falsy value encountered (or the last value if all are truthy)
     # - 'or' returns the first truthy value encountered (or the last value if all are falsy)
-    is_short_circuit_value = (
-        (lambda x: not x) if isinstance(node.op, ast.And) else (lambda x: bool(x))
-    )
+    is_short_circuit_value = {
+        ast.And: lambda x: not x,
+        ast.Or: lambda x: bool(x),
+    }.get(node.op)
+    if is_short_circuit_value is None:
+        raise InterpreterError(
+            f"Unsupported boolean operation: {type(node.op).__name__}"
+        )
+    result = UNDEFINED
     for value in node.values:
         result = evaluate_ast(
             value,
@@ -1265,11 +1200,16 @@ def evaluate_call(
 
     if func in forbidden_tools:
         raise InterpreterError(f"Attempted to access forbidden tool: {func.__name__}")
+    elif func is None:
+        raise InterpreterError(
+            f"Function {func_name} is not defined or not callable. "
+            "Make sure to define it in the preceding code."
+        )
     if func in shims:
         func = shims[func]
     elif hasattr(func, "__func__") and func.__func__ in shims:
-        f = shims[func.__func__]
-        this = func.__self__
+        f = shims[func.__func__]  # type: ignore
+        this = func.__self__  # type: ignore
         func = lambda *args, __f=f, __self=this, **kwargs: __f(__self, *args, **kwargs)
 
     if func_name == "super":
@@ -1357,7 +1297,9 @@ def evaluate_name(
     authorized_imports: list[str],
 ) -> Any:
     if name.id in INTERPRETER_INTERNALS:
-        raise InterpreterError(f"Attempted to access internal variable: {name.id}. This is not allowed.")
+        raise InterpreterError(
+            f"Attempted to access internal variable: {name.id}. This is not allowed."
+        )
     if name.id in state:
         return state[name.id]
     elif name.id in static_tools:
@@ -1830,8 +1772,9 @@ def evaluate_with(
             authorized_imports,
         )
         if item.optional_vars:
-            state[item.optional_vars.id] = context_expr.__enter__()
-            contexts.append(state[item.optional_vars.id])
+            id = item.optional_vars.id  # type: ignore
+            state[id] = context_expr.__enter__()
+            contexts.append(state[id])
         else:
             context_var = context_expr.__enter__()
             contexts.append(context_var)
@@ -1953,7 +1896,13 @@ def evaluate_dictcomp(
     result = {}
     for gen in dictcomp.generators:
         iter_value = evaluate_ast(
-            gen.iter, state, static_tools, custom_tools, forbidden_tools, shims, authorized_imports,
+            gen.iter,
+            state,
+            static_tools,
+            custom_tools,
+            forbidden_tools,
+            shims,
+            authorized_imports,
         )
         for value in iter_value:
             new_state = state.copy()
@@ -2304,6 +2253,9 @@ def evaluate_python_code(
 
         static_tools["final_answer"] = final_answer
 
+    if len(expression.body) == 0:
+        raise InterpreterError("No code to execute. The code is empty.")
+    node = expression.body[0]
     try:
         for node in expression.body:
             result = evaluate_ast(
@@ -2372,9 +2324,7 @@ class LocalPythonExecutor(PythonExecutor):
     ):
         self.custom_tools = {}
         self.state = {"__name__": "__main__"}
-        self.max_print_outputs_length = max_print_outputs_length
-        if max_print_outputs_length is None:
-            self.max_print_outputs_length = DEFAULT_MAX_LEN_OUTPUT
+        self.max_print_outputs_length = max_print_outputs_length or DEFAULT_MAX_LEN_OUTPUT
         self.additional_authorized_imports = additional_authorized_imports
         self.authorized_imports = list(
             set(BASE_BUILTIN_MODULES) | set(self.additional_authorized_imports)
