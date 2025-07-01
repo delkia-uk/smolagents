@@ -1284,7 +1284,9 @@ def evaluate_call(
         else:
             raise InterpreterError("super() takes at most 2 arguments")
     elif func_name == "print":
-        state["_print_outputs"] += " ".join(map(str, args)) + "\n"
+        sep = kwargs.get("sep", " ")
+        end = kwargs.get("end", "\n")
+        state["_print_outputs"] += sep.join(map(str, args)) + end
         return None
     else:  # Assume it's a Callable object
         if (
