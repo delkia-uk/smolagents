@@ -2225,15 +2225,7 @@ def evaluate_python_code(
             updated by this function to contain all variables as they are evaluated.
             The print outputs will be stored in the state under the key "_print_outputs".
     """
-    try:
-        expression = ast.parse(code)
-    except SyntaxError as e:
-        raise InterpreterError(
-            f"Code parsing failed on line {e.lineno} due to: {type(e).__name__}\n"
-            f"{e.text}"
-            f"{' ' * (e.offset or 0)}^\n"
-            f"Error: {str(e)}"
-        )
+    expression = ast.parse(code)
 
     if state is None:
         state = {}
@@ -2278,8 +2270,6 @@ def evaluate_python_code(
         )
         is_final_answer = True
         return e.value, is_final_answer
-    except SyntaxError:
-        raise
     except Exception as e:
         state["_print_outputs"].value = truncate_content(
             str(state["_print_outputs"]), max_length=max_print_outputs_length
