@@ -2278,6 +2278,8 @@ def evaluate_python_code(
         )
         is_final_answer = True
         return e.value, is_final_answer
+    except SyntaxError:
+        raise
     except Exception as e:
         state["_print_outputs"].value = truncate_content(
             str(state["_print_outputs"]), max_length=max_print_outputs_length
